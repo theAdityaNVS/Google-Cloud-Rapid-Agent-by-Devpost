@@ -1,0 +1,8 @@
+# AI Agent Instructions
+
+**CRITICAL: MEMORY UPDATE REQUIRED**
+
+1. **Update Memory:** At the start and end of any task, you must read and update the `MEMORY.md` file in the root of the project to maintain context for future AI agents.
+2. **Context Persistence:** Whenever making architectural decisions, adding new endpoints, modifying data models, or implementing new features, document these changes in `MEMORY.md`.
+3. **Use Memory MCP:** If available, use the `memory` MCP server tools (e.g., `create_entities`, `add_observations`) to store persistent structured data about the workspace.
+4. **Current State Awareness:** Before proceeding with large changes, always refer to `IDEA.md` and `MEMORY.md` for project specifications and historical context.

@@ -1,0 +1,32 @@
+# Dependencies
+**/node_modules/
+**/venv/
+**/.venv/
+**/env/
+**/__pycache__/
+*.pyc
+
+# IDEs and OS
+.idea/
+.vscode/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Build and deployment outputs
+**/dist/
+**/build/
+**/.next/
+**/out/
+
+# Environments and Secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs and databases
+*.log
+*.sqlite
