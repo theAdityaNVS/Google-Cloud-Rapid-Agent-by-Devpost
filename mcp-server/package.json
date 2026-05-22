@@ -1,0 +1,15 @@
+{
+  "name": "ergoflow-mongodb-mcp-server",
+  "version": "1.0.0",
+  "description": "MongoDB MCP Server for ErgoFlow AI — exposes Atlas collections to Gemini 3 via Agent Builder",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "npx -y mongodb-mcp-server@latest"
+  },
+  "dependencies": {
+    "mongodb-mcp-server": "^1.11.0"
+  }
+}

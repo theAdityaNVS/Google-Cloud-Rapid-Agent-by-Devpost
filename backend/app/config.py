@@ -27,9 +27,16 @@ class Settings(BaseSettings):
         description="OAuth redirect URI",
     )
 
+    # ── MongoDB MCP Server ───────────────────────────────────────────────
+    mcp_server_url: str = Field(
+        default="",
+        description="URL of the MongoDB MCP Server on Cloud Run (set after deployment)",
+    )
+
     # ── Agent Builder (future) ───────────────────────────────────────────
     agent_builder_endpoint: str = Field(default="", description="Vertex AI Agent Builder endpoint")
     agent_builder_api_key: str = Field(default="", description="Agent Builder API key")
+    google_cloud_project: str = Field(default="", description="Google Cloud Project ID")
 
     model_config = {
         "env_file": ".env",
