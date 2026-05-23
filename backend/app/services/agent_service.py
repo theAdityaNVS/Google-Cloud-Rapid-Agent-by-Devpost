@@ -136,6 +136,24 @@ def _pick_exercises(feedback: Optional[Dict], count: int = 4) -> List[Movement]:
     return exercises[:count]
 
 
+def _pick_exercises_by_areas(targeted_areas: List[str], feedback: Optional[Dict], count: int = 4) -> List[Movement]:
+    """Select exercises using Gemini-identified priority areas. Falls back to feedback-based selection."""
+    if not targeted_areas:
+        return _pick_exercises(feedback, count)
+
+    exercises: List[Movement] = []
+    for area in targeted_areas:
+        pool = EXERCISE_LIBRARY.get(area, EXERCISE_LIBRARY["general"])
+        exercises.append(random.choice(pool))
+        if len(exercises) >= count:
+            break
+
+    while len(exercises) < count:
+        exercises.append(random.choice(EXERCISE_LIBRARY["general"]))
+
+    return exercises[:count]
+
+
 def _generate_routine_title(fatigue_score: float, feedback: Optional[Dict]) -> str:
     """Generate a descriptive routine title based on primary issues."""
     if feedback:
@@ -160,12 +178,8 @@ def _generate_routine_title(fatigue_score: float, feedback: Optional[Dict]) -> s
 
 async def evaluate_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any]:
     """
-    Run the agent evaluation loop:
-    1. Fetch latest data
-    2. Compute fatigue score
-    3. Generate routine if score >= 6
-    4. Log all activity entries
-    Returns structured result for the frontend.
+    Run the agent evaluation loop.
+    Tries Gemini agent first; falls back to local simulation if key not configured.
     """
     activity_entries: List[AgentActivityEntry] = []
     now = datetime.now(timezone.utc)
@@ -179,66 +193,65 @@ async def evaluate_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any
             metadata=metadata,
         ))
 
-    # Step 1: Fetch data
-    _log("tool_call", "📡 Querying MongoDB MCP → biometric_telemetry collection",
-         {"tool": "mongodb_mcp", "collection": "biometric_telemetry"})
+    # Try real Gemini agent first
+    from app.services.gemini_agent import run_agent
+    from app.config import settings
 
-    telemetry = await db_svc.get_latest_telemetry(db, user_id)
+    gemini_decision: Optional[Dict] = None
+    if settings.gemini_api_key:
+        try:
+            _log("tool_call", "🤖 Invoking Gemini agent with MongoDB MCP tools",
+                 {"model": settings.gemini_model, "mcp_server": settings.mcp_server_url})
+            gemini_decision = await run_agent(user_id)
+            _log("analysis", "✅ Gemini agent returned decision",
+                 {"fatigue_score": gemini_decision.get("fatigue_score")})
+            for step in gemini_decision.get("reasoning", []):
+                _log("analysis", f"🧠 {step}")
+        except Exception as exc:
+            _log("analysis", f"⚠️ Gemini agent failed ({exc}), falling back to simulation")
+            gemini_decision = None
 
-    _log("tool_call", "📡 Querying MongoDB MCP → subjective_feedback collection",
-         {"tool": "mongodb_mcp", "collection": "subjective_feedback"})
+    # Fallback: use local simulation
+    if gemini_decision is None:
+        _log("tool_call", "📡 Querying MongoDB MCP → biometric_telemetry (simulated)",
+             {"tool": "mongodb_mcp", "collection": "biometric_telemetry"})
+        telemetry = await db_svc.get_latest_telemetry(db, user_id)
+        _log("tool_call", "📡 Querying MongoDB MCP → subjective_feedback (simulated)",
+             {"tool": "mongodb_mcp", "collection": "subjective_feedback"})
+        feedback = await db_svc.get_latest_feedback(db, user_id)
+        fatigue_score = _compute_fatigue_score(telemetry, feedback)
+        _log("decision",
+             f"🧠 Fatigue score computed: {fatigue_score}/10 "
+             f"({'HIGH — intervention needed' if fatigue_score >= 6 else 'Acceptable'})",
+             {"fatigue_score": fatigue_score})
+        gemini_decision = {
+            "fatigue_score": fatigue_score,
+            "reasoning": [e.message for e in activity_entries],
+            "action": "intervention_scheduled" if fatigue_score >= 6 else "no_action_needed",
+            "targeted_areas": [],
+        }
+        if fatigue_score >= 6:
+            fb_data = await db_svc.get_latest_feedback(db, user_id)
+            gemini_decision["routine_title"] = _generate_routine_title(fatigue_score, fb_data)
 
-    feedback = await db_svc.get_latest_feedback(db, user_id)
-
-    if telemetry:
-        sitting = telemetry.get("context", {}).get("consecutive_sitting_mins", 0)
-        steps = telemetry.get("metrics", {}).get("steps_count_today", 0)
-        _log("analysis", f"📊 Biometric data received — Sitting: {sitting} mins, Steps: {steps}",
-             {"sitting_mins": sitting, "steps": steps})
-    else:
-        _log("analysis", "⚠️ No biometric telemetry found — using defaults")
-
-    if feedback:
-        assess = feedback.get("assessments", {})
-        _log("analysis", f"📋 Feedback data — Back: {assess.get('lower_back_stiffness')}/5, "
-             f"Shoulder: {assess.get('shoulder_tension')}/5, "
-             f"Neck: {assess.get('neck_pain')}/5, "
-             f"Eyes: {assess.get('eye_strain')}/5",
-             {"assessments": assess})
-    else:
-        _log("analysis", "⚠️ No subjective feedback found — using defaults")
-
-    # Step 2: Compute fatigue score
-    fatigue_score = _compute_fatigue_score(telemetry, feedback)
-    _log("decision",
-         f"🧠 Fatigue score computed: {fatigue_score}/10 "
-         f"({'HIGH — intervention needed' if fatigue_score >= 6 else 'Acceptable — monitoring'})",
-         {"fatigue_score": fatigue_score})
+    fatigue_score = gemini_decision["fatigue_score"]
+    action = gemini_decision.get("action", "no_action_needed")
 
     result: Dict[str, Any] = {
         "fatigue_score": fatigue_score,
-        "reasoning": [e.message for e in activity_entries],
-        "action_taken": "no_action_needed",
+        "reasoning": gemini_decision.get("reasoning", []),
+        "action_taken": action,
         "routine": None,
         "calendar_event": None,
     }
 
-    # Step 3: Generate routine if needed
-    if fatigue_score >= 6:
+    if action == "intervention_scheduled":
         _log("decision", "🚨 Threshold exceeded — initiating autonomous intervention")
 
-        # Check calendar availability
-        _log("tool_call", "📅 Checking Google Calendar for available slots",
-             {"tool": "google_calendar", "action": "find_free_slot"})
-
-        slot_start = now + timedelta(minutes=random.randint(5, 30))
-        slot_end = slot_start + timedelta(minutes=10)
-        _log("analysis",
-             f"✅ Available slot found: {slot_start.strftime('%H:%M')} – {slot_end.strftime('%H:%M')} UTC")
-
-        # Generate exercise routine
-        exercises = _pick_exercises(feedback)
-        title = _generate_routine_title(fatigue_score, feedback)
+        targeted_areas = gemini_decision.get("targeted_areas", [])
+        feedback = await db_svc.get_latest_feedback(db, user_id)
+        exercises = _pick_exercises_by_areas(targeted_areas, feedback)
+        title = gemini_decision.get("routine_title") or _generate_routine_title(fatigue_score, feedback)
         total_secs = sum(e.duration_secs for e in exercises)
 
         protocol = GeneratedProtocol(
@@ -246,6 +259,9 @@ async def evaluate_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any
             duration_mins=max(total_secs // 60, 5),
             movements=exercises,
         )
+
+        slot_start = now + timedelta(minutes=random.randint(5, 30))
+        slot_end = slot_start + timedelta(minutes=10)
 
         routine = OrchestratedRoutine(
             user_id=user_id,
@@ -255,30 +271,25 @@ async def evaluate_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any
             generated_protocol=protocol,
         )
 
-        _log("action",
-             f"📝 Generated routine: \"{title}\" — {len(exercises)} exercises, {protocol.duration_mins} min")
-
-        # Save routine to MongoDB
+        _log("action", f"📝 Generated routine: \"{title}\" — {len(exercises)} exercises, {protocol.duration_mins} min")
         await db_svc.insert_routine(db, routine)
         _log("action", "💾 Routine saved to MongoDB → orchestrated_routines collection")
 
-        # Create calendar event
         cal_event = {
             "user_id": user_id,
             "event_id": routine.associated_calendar_event_id,
             "title": f"ErgoFlow: {title}",
             "start_time": slot_start,
             "end_time": slot_end,
-            "description": f"Auto-scheduled recovery session. Fatigue score: {fatigue_score}/10",
+            "description": f"Auto-scheduled by Gemini agent. Fatigue score: {fatigue_score}/10",
             "status": "confirmed",
         }
         await db_svc.insert_calendar_event(db, cal_event)
         cal_event.pop("_id", None)
         _log("action", f"📅 Calendar event created: \"{cal_event['title']}\"",
              {"calendar_event_id": routine.associated_calendar_event_id})
-
         _log("result",
-             f"✅ Intervention complete — Recovery protocol scheduled at {slot_start.strftime('%H:%M')} UTC",
+             f"✅ Intervention complete — Recovery scheduled at {slot_start.strftime('%H:%M')} UTC",
              {"fatigue_score": fatigue_score, "routine_title": title})
 
         result["action_taken"] = "intervention_scheduled"
@@ -286,11 +297,9 @@ async def evaluate_user(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any
         result["calendar_event"] = cal_event
     else:
         _log("result",
-             f"✅ No intervention needed — fatigue score {fatigue_score}/10 is within acceptable range",
+             f"✅ No intervention needed — fatigue score {fatigue_score}/10 within acceptable range",
              {"fatigue_score": fatigue_score})
 
-    # Save activity log
     result["reasoning"] = [e.message for e in activity_entries]
     await db_svc.insert_activities_bulk(db, activity_entries)
-
     return result
