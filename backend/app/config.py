@@ -33,6 +33,10 @@ class Settings(BaseSettings):
         description="URL of the MongoDB MCP Server on Cloud Run (set after deployment)",
     )
 
+    # ── Gemini API ───────────────────────────────────────────────────────────
+    gemini_api_key: str = Field(default="", description="Google AI Studio API key for Gemini")
+    gemini_model: str = Field(default="gemini-1.5-flash", description="Gemini model name")
+
     # ── Agent Builder (future) ───────────────────────────────────────────
     agent_builder_endpoint: str = Field(default="", description="Vertex AI Agent Builder endpoint")
     agent_builder_api_key: str = Field(default="", description="Agent Builder API key")
