@@ -1,4 +1,3 @@
-import os
 import time
 from fastapi import APIRouter
 from app.database import is_connected
@@ -25,14 +24,34 @@ async def db_status():
 
 @router.get("/gemini")
 async def gemini_status():
-    # Placeholder for future Google Cloud Vertex AI / Gemini integration
-    has_key = "GEMINI_API_KEY" in os.environ or "GOOGLE_APPLICATION_CREDENTIALS" in os.environ
-    return {
-        "service": "gemini_agent",
-        "mode": "live" if has_key else "simulated",
-        "status": "configured" if has_key else "using_mock_fallback",
-        "ready": True
-    }
+    from app.config import settings
+    if not settings.gemini_api_key:
+        return {
+            "service": "gemini_agent",
+            "mode": "simulated",
+            "status": "no_api_key",
+            "ready": False,
+        }
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel(settings.gemini_model)
+        model.generate_content("ping")
+        return {
+            "service": "gemini_agent",
+            "mode": "live",
+            "model": settings.gemini_model,
+            "status": "healthy",
+            "ready": True,
+        }
+    except Exception as exc:
+        return {
+            "service": "gemini_agent",
+            "mode": "live",
+            "status": "error",
+            "error": str(exc),
+            "ready": False,
+        }
 
 @router.get("/status")
 async def full_system_status():
