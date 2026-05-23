@@ -19,6 +19,8 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     try:
         await connect_to_mongo()
+        from app.services.mongodb_service import ensure_indexes
+        await ensure_indexes(get_database())
     except Exception as e:
         logger.warning("MongoDB not available (%s). Endpoints requiring DB will return 503.", e)
     yield
