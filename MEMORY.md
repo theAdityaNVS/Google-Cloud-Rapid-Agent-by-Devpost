@@ -14,85 +14,77 @@ This file serves as the long-term memory for AI agents working on this project. 
 | Layer | Technology |
 |---|---|
 | Frontend | Next.js 16 (App Router), React 19, Recharts 3, Vanilla CSS (dark theme) |
-| Backend | Python 3.12, FastAPI 0.115, Motor 3.5 (async MongoDB), Pydantic 2.9 |
+| Backend | Python 3.12, FastAPI 0.115, Motor 3.5 (async MongoDB), Pydantic 2.9, **google-generativeai 0.8** |
 | Database | MongoDB Atlas (M0 free tier) — cluster: `ergoai.ofo6lhr.mongodb.net` |
-| AI Agent | **SIMULATED** — local Python fatigue-scoring (needs Gemini 3 / Agent Builder swap) |
+| AI Agent | ✅ **IMPLEMENTED** — Gemini 1.5 Flash via SDK with Function Calling + MCP Tool Integration |
 | Calendar | **MOCK** — events stored in MongoDB (needs Google Calendar OAuth2) |
-| MCP Server | ✅ **DEPLOYED** — `https://ergoflow-mongodb-mcp-555089344520.us-central1.run.app` (Cloud Run, `theadityanvs-unified` project) |
-| Deployment | LOCAL (backend+frontend) + MCP on Cloud Run |
+| MCP Server | ✅ **DEPLOYED** — `https://ergoflow-mongodb-mcp-555089344520.us-central1.run.app` |
+| Deployment | LOCAL (ready for Cloud Run/Vercel with Docker) |
 
-## Current State (Last Updated: 2026-05-22T12:46 IST)
+## Current State (Last Updated: 2026-05-25T11:00 IST)
 
 ### Architecture Decisions Made
 - **Stack Change**: Switched from Java/Spring Boot (IDEA.md) to **Python FastAPI** — FastAPI has native Google ADK support, faster iteration.
+- **AI Implementation**: Chose **google-generativeai SDK** with manual function calling over Vertex AI Agent Builder UI for better programmatic control and local testing.
+- **MCP Communication**: Implemented a custom **JSON-RPC HTTP client** (`mcp_client.py`) to bridge FastAPI with the Cloud Run-hosted MCP server.
 - **Frontend**: Chose Next.js over plain React/Vue for SSR, polished ecosystem.
 - **Styling**: Vanilla CSS with CSS variables (glassmorphism dark theme) — NOT Tailwind.
 - **Charts**: Recharts library for health trend visualization.
-- **Database driver**: Motor (async) instead of PyMongo for non-blocking MongoDB access.
 
 ### What is Completed (Done) ✅
+- **Gemini Agent Integration (`gemini_agent.py`)**: Real AI cognitive pipeline implemented:
+  - Uses Gemini 1.5 Flash with function calling capabilities.
+  - Dynamically calls tools to query MongoDB for latest biometrics and feedback.
+  - Implements complex fatigue scoring logic (reasoning steps: 0-10 scale).
+  - Generates targeted routine titles and identifies specific body areas for intervention.
+  - Integrated into the `/api/agent/evaluate` endpoint with a local fallback mechanism.
+- **MongoDB MCP Client (`mcp_client.py`)**: Custom bridge to the deployed MCP server:
+  - Handles MCP protocol initialization and notification sequence over HTTP.
+  - Extracts and parses documents from `<untrusted-user-data>` security wrappers.
+  - Provides a clean `mcp_find` interface for the agent to use.
+- **Dockerization**: Complete containerization for all components:
+  - `backend/Dockerfile`: Lightweight Python 3.12-slim build for Cloud Run.
+  - `frontend/Dockerfile`: Multi-stage Node 22-alpine build with Next.js standalone optimization.
+  - `mcp-server/Dockerfile`: Standard Node-based build for the partner tool.
 - **Frontend Dashboard (Next.js & React)**: Fully scaffolded and active UI containing:
-  - Sidebar and Header navigation with tab routing (dashboard, agent, routines, calendar, analytics, settings).
-  - Interactive components: `FatigueScoreCard`, `HealthTrendChart` (biometrics timeline via Recharts), `CalendarSyncStatus` (upcoming breaks), `AgentActivityFeed` (reasoning logs), `RoutineCard` (exercise protocols), and `MicroFeedbackModal` (qualitative muscle assessments).
-  - Configured with automatic backend polling every 10 seconds and parallel API fetches.
-  - Dark theme with CSS variables, glassmorphism cards, micro-animations, responsive design.
-  - **22KB globals.css** design system with full color palette, transitions, and glassmorphism.
+  - Sidebar and Header navigation with tab routing.
+  - Interactive components: `FatigueScoreCard`, `HealthTrendChart`, `CalendarSyncStatus`, `AgentActivityFeed`, `RoutineCard`, and `MicroFeedbackModal`.
+  - Configured with automatic backend polling every 10 seconds.
 - **Backend Architecture (FastAPI & MongoDB)**: Fully structured backend featuring:
   - Lifespan MongoDB connection management via asynchronous **Motor** driver.
-  - Structured routing: 7 routers (`/api/health`, `/api/telemetry`, `/api/feedback`, `/api/agent/routines`, `/api/agent`, `/api/calendar`, `/api/simulator`).
-  - Strict Pydantic schemas: 5 models (UserProfile, BiometricTelemetry, SubjectiveFeedback, OrchestratedRoutine, AgentActivityEntry) + sub-models.
-  - MongoDB indexes created on startup for all query patterns.
-  - CORS configured for Next.js frontend (localhost:3000).
-  - Full CRUD in `mongodb_service.py` for all 6 collections.
+  - Structured routing: 7 routers.
+  - Strict Pydantic schemas: 5 models + sub-models.
 - **Mock Services / Demos**:
-  - `simulator_service.py`: Generates complex biometric telemetry & user sentiment logs representing high-fatigue, moderate, or healthy workdays (3 scenarios, multi-day support).
-  - `agent_service.py`: Emulates the cognitive pipeline — calculates composite fatigue scores (sitting 0.3 + pain 0.3 + inactivity 0.2 + mental 0.2 weighting), picks targeted exercises from a 12-exercise library, generates titled routines, creates mock calendar events, and logs all reasoning steps to `agent_activity_log`.
-  - `calendar_service.py`: Stores mock calendar events in MongoDB with CRUD operations.
-- **API Client (Frontend)**: `lib/api.ts` with typed fetch wrapper and endpoints for all backend routes.
-- **TypeScript Types**: `lib/types.ts` with matching frontend type definitions.
-- **Demo Screenshots**: `docs/screenshots/dashboard.png` and `docs/screenshots/api_docs.png` exist.
-- **Memory Rules**: Created `.clinerules` and `.cursorrules` to force future AI agents to check and update project memory.
-- **README.md**: Professional with mermaid architecture diagram, setup instructions, and overview.
+  - `simulator_service.py`: Generates complex biometric telemetry & user sentiment logs.
+- **API Client (Frontend)**: `lib/api.ts` with typed fetch wrapper.
+- **TypeScript Types**: `lib/types.ts` with matching frontend definitions.
+- **README.md**: Professional documentation with architecture diagrams.
 
 ### What is Simulated (Working but needs production swap) ⚠️
-- **Agent Reasoning Pipeline** (`agent_service.py`): Fatigue scoring, exercise selection, routine generation — all local Python. The `_log()` calls simulate MCP tool calls with emoji-prefixed messages. Needs swap to real Gemini 3 API via Agent Builder or ADK.
 - **Calendar Events** (`calendar_service.py`): Events stored in MongoDB `calendar_events` collection. Needs swap to actual Google Calendar API with OAuth2.
+- **Deployment**: Components have Dockerfiles but are currently running locally. Needs deployment to Cloud Run (backend) and Vercel/Cloud Run (frontend).
 
 ### What is Missing (Pending) ❌
 
 #### Critical — Required for Hackathon Judging
-1. **Google Cloud Agent Builder + Gemini 3 Integration** (Judging: "Multi-Step Planning"):
-   - No Agent Builder, ADK, or Vertex AI code exists anywhere.
-   - `config.py` has empty placeholder fields (`agent_builder_endpoint`, `agent_builder_api_key`).
-   - Need to: Create agent in Agent Studio, register MongoDB MCP as tool, configure system prompt, call agent from backend.
-   - **Est: 6-8 hours**
-
-2. **MongoDB MCP Server** (Judging: "Partner Power" — MANDATORY):
-   - ✅ **COMPLETED 2026-05-22**
-   - Package `mongodb-mcp-server@1.11.0` deployed on Cloud Run (`theadityanvs-unified`)
-   - **URL**: `https://ergoflow-mongodb-mcp-555089344520.us-central1.run.app`
-   - Config: `MDB_MCP_TRANSPORT=http`, `MDB_MCP_READ_ONLY=true`, port 8080
-   - 18 tools exposed: `find`, `aggregate`, `list-collections`, `collection-schema`, `count`, etc.
-   - Files: `mcp-server/Dockerfile`, `mcp-server/package.json`, `mcp-server/.env.example`, `mcp-server/README.md`
-   - **Next**: Register this URL in Agent Builder as an MCP Tool
-
-3. **Google Calendar OAuth2 + Real API** (Judging: "Beyond Chat"):
-   - `requirements.txt` does NOT include `google-api-python-client` or `google-auth-oauthlib`.
-   - `.env` has empty `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-   - Need to: Set up OAuth consent screen in Google Cloud, implement OAuth router, swap calendar_service.py.
+1. **Google Calendar OAuth2 + Real API** (Judging: "Beyond Chat"):
+   - Need to: Set up OAuth consent screen in Google Cloud, implement OAuth router, swap `calendar_service.py`.
    - **Est: 4-5 hours**
 
+2. **Cloud Infrastructure Deployment**:
+   - Backend → Google Cloud Run.
+   - Frontend → Google Cloud Run or Vercel.
+   - **Est: 2-3 hours**
+
 #### Important — For Demo Credibility
-4. **Dockerfiles** (backend + frontend): Not created yet.
-5. **Cloud Run Deployment**: No deploy configs or GitHub Actions workflows.
-6. **Vercel Deployment**: No Vercel config for frontend.
-7. **Demo Video** (3 min): Not recorded — required for submission.
+3. **Demo Video** (3 min): Not recorded — required for submission.
+4. **Agent Evaluation/Observability**: Track agent performance/latency in a meta-dashboard.
 
 #### Nice-to-Have (Tier 3)
-8. Animated exercise illustrations (CSS/SVG stick figures)
-9. Agent evaluation/observability metrics dashboard
-10. Multi-user simulation support
-11. Settings panel (currently shows "coming soon")
+5. Animated exercise illustrations (CSS/SVG stick figures).
+6. Settings panel (currently shows "coming soon").
+7. Multi-user simulation support.
+
 
 ## MongoDB Collections
 | Collection | Fields | Indexed |
